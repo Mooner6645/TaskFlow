@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "634447748594",
+    "project_id": "taskflow-cb6ec",
+    "storage_bucket": "taskflow-cb6ec.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:634447748594:android:5ad922aec470b92cc61f6b",
+        "android_client_info": {
+          "package_name": "com.example.taskflow"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzVlrw96lGAyC_pGs4qrtdrRxh_E2fomo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
