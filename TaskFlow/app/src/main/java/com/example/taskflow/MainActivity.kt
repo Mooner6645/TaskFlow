@@ -42,6 +42,9 @@ fun SaveToFirebaseScreen() {
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
+    // Mutable list to hold user inputs
+    val tasks = remember { mutableStateListOf<String>() }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -66,6 +69,9 @@ fun SaveToFirebaseScreen() {
                         .addOnSuccessListener {
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar("Saved successfully!")
+                                // Add task to the list
+                                tasks.add(text)
+                                text = "" // Clear the input field
                             }
                         }
                         .addOnFailureListener { e ->
@@ -101,12 +107,30 @@ fun SaveToFirebaseScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Display each task in a card
+        tasks.forEach { task ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                elevation = CardDefaults.cardElevation(4.dp)
+            ) {
+                Text(
+                    text = task,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.CenterHorizontally)
         )
     }
 }
+
 
 @Preview(showBackground = true)
 @Composable
