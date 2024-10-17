@@ -5,6 +5,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -107,18 +109,25 @@ fun SaveToFirebaseScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Display each task in a card
-        tasks.forEach { task ->
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                elevation = CardDefaults.cardElevation(4.dp)
-            ) {
-                Text(
-                    text = task,
-                    modifier = Modifier.padding(16.dp)
-                )
+        // Display tasks in a horizontal LazyRow
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(tasks) { task ->
+                Card(
+                    modifier = Modifier
+                        .width(200.dp)
+                        .height(100.dp),
+                    elevation = CardDefaults.cardElevation(4.dp)
+                ) {
+                    Text(
+                        text = task,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
             }
         }
 
