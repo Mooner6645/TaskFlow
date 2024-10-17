@@ -183,6 +183,8 @@ fun TaskForm(
     var text by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("") }
+
+    // Predefined categories
     val categories = listOf("Work", "Personal", "Fitness", "Study", "Other")
 
     Column {
@@ -204,10 +206,11 @@ fun TaskForm(
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        // Use the updated CategoryDropdown
         CategoryDropdown(
             categories = categories,
             selectedCategory = selectedCategory,
-            onCategorySelected = { selectedCategory = it }
+            onCategorySelected = { selectedCategory = it } // Update selected category
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -231,6 +234,45 @@ fun TaskForm(
         }
     }
 }
+
+
+@Composable
+fun CategoryDropdown(
+    categories: List<String>,
+    selectedCategory: String,
+    onCategorySelected: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        TextField(
+            value = selectedCategory,
+            onValueChange = {}, // No-op to prevent typing
+            label = { Text("Select Category") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }, // Open dropdown on click
+            readOnly = true // Make it read-only to indicate it's a dropdown
+        )
+
+        // Dropdown menu
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false } // Close dropdown when clicked outside
+        ) {
+            categories.forEach { category ->
+                DropdownMenuItem(
+                    text = { Text(category) },
+                    onClick = {
+                        onCategorySelected(category) // Set the selected category
+                        expanded = false // Close the dropdown after selection
+                    }
+                )
+            }
+        }
+    }
+}
+
 
 @Composable
 fun TaskCard(
@@ -288,11 +330,7 @@ fun TaskEditDialog(
                     label = { Text("Edit Description") }
                 )
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = onDelete,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
+                Button(onClick = onDelete) {
                     Text("Delete Task")
                 }
             }
@@ -300,44 +338,8 @@ fun TaskEditDialog(
     )
 }
 
-@Composable
-fun CategoryDropdown(
-    categories: List<String>,
-    selectedCategory: String,
-    onCategorySelected: (String) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Box(modifier = Modifier.fillMaxWidth()) {
-        TextField(
-            value = selectedCategory,
-            onValueChange = {},
-            label = { Text("Select Category") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = true },
-            readOnly = true
-        )
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            categories.forEach { category ->
-                DropdownMenuItem(
-                    text = { Text(category) },
-                    onClick = {
-                        onCategorySelected(category)
-                        expanded = false
-                    }
-                )
-            }
-        }
-    }
-}
-
-// Helper Functions for Firebase Operations
-
-fun saveTaskToFirebase(
+// Firebase interaction functions
+private fun saveTaskToFirebase(
     db: FirebaseFirestore,
     auth: FirebaseAuth,
     taskText: String,
@@ -348,8 +350,7 @@ fun saveTaskToFirebase(
     snackbarHostState: SnackbarHostState
 ) {
     val userEmail = auth.currentUser?.email ?: return
-
-    val taskData = hashMapOf(
+    val newTask = hashMapOf(
         "taskText" to taskText,
         "description" to description,
         "category" to category,
@@ -357,11 +358,11 @@ fun saveTaskToFirebase(
     )
 
     db.collection("userInputs")
-        .add(taskData)
+        .add(newTask)
         .addOnSuccessListener { documentReference ->
             tasks.add(Triple(taskText, description, documentReference.id))
             coroutineScope.launch {
-                snackbarHostState.showSnackbar("Task added successfully!")
+                snackbarHostState.showSnackbar("Task added successfully.")
             }
         }
         .addOnFailureListener { e ->
@@ -371,28 +372,28 @@ fun saveTaskToFirebase(
         }
 }
 
-fun updateTaskInFirebase(
+private fun updateTaskInFirebase(
     db: FirebaseFirestore,
-    taskId: String,
-    editedText: String,
-    editedDescription: String,
+    documentId: String,
+    updatedText: String,
+    updatedDescription: String,
     tasks: SnapshotStateList<Triple<String, String, String>>,
     index: Int,
     coroutineScope: CoroutineScope,
     snackbarHostState: SnackbarHostState
 ) {
-    // Create a map with the updated task data
-    val taskData = hashMapOf(
-        "taskText" to editedText,
-        "description" to editedDescription
-    ) as Map<String, Any> // Explicitly cast to Map<String, Any>
+    // Create a mutable map with type MutableMap<String, Any>
+    val updatedTask: MutableMap<String, Any> = hashMapOf(
+        "taskText" to updatedText,
+        "description" to updatedDescription
+    )
 
-    db.collection("userInputs").document(taskId)
-        .update(taskData)
+    db.collection("userInputs").document(documentId)
+        .update(updatedTask)
         .addOnSuccessListener {
-            tasks[index] = Triple(editedText, editedDescription, taskId) // Update local task list
+            tasks[index] = Triple(updatedText, updatedDescription, documentId) // Update the task in the list
             coroutineScope.launch {
-                snackbarHostState.showSnackbar("Task updated successfully!")
+                snackbarHostState.showSnackbar("Task updated successfully.")
             }
         }
         .addOnFailureListener { e ->
@@ -403,20 +404,20 @@ fun updateTaskInFirebase(
 }
 
 
-fun deleteTaskFromFirebase(
+private fun deleteTaskFromFirebase(
     db: FirebaseFirestore,
-    taskId: String,
+    documentId: String,
     tasks: SnapshotStateList<Triple<String, String, String>>,
     index: Int,
     coroutineScope: CoroutineScope,
     snackbarHostState: SnackbarHostState
 ) {
-    db.collection("userInputs").document(taskId)
+    db.collection("userInputs").document(documentId)
         .delete()
         .addOnSuccessListener {
-            tasks.removeAt(index) // Remove task from local list
+            tasks.removeAt(index) // Remove the task from the list
             coroutineScope.launch {
-                snackbarHostState.showSnackbar("Task deleted successfully!")
+                snackbarHostState.showSnackbar("Task deleted successfully.")
             }
         }
         .addOnFailureListener { e ->
@@ -433,18 +434,26 @@ fun SignOutButton(
     coroutineScope: CoroutineScope,
     onSignOut: () -> Unit
 ) {
-    Button(onClick = {
-        auth.signOut()
-        onSignOut()
-    }) {
+    Button(
+        onClick = {
+            auth.signOut()
+            onSignOut()
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Text("Sign Out")
     }
 }
 
 @Preview(showBackground = true)
 @Composable
-fun DefaultPreview() {
-    TaskFlowTheme {
-        SaveToFirebaseScreen()
-    }
+fun PreviewTaskForm() {
+    val snackbarHostState = SnackbarHostState()
+    val coroutineScope = rememberCoroutineScope()
+
+    TaskForm(
+        onSave = { _, _, _ -> },
+        snackbarHostState = snackbarHostState,
+        coroutineScope = coroutineScope
+    )
 }
