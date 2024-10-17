@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.example.taskflow.ui.theme.TaskFlowTheme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -39,7 +40,7 @@ class MainActivity : ComponentActivity() {
 fun SaveToFirebaseScreen() {
     var text by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    var isTaskFormVisible by remember { mutableStateOf(false) } // State to track task form visibility
+    var isTaskFormVisible by remember { mutableStateOf(false) }
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
     val currentUser = auth.currentUser
@@ -81,9 +82,22 @@ fun SaveToFirebaseScreen() {
             .fillMaxSize()
             .padding(16.dp)
     ) {
+        // Call to SignOutButton here
+        SignOutButton(
+            auth = auth,
+            snackbarHostState = snackbarHostState,
+            coroutineScope = coroutineScope,
+            onSignOut = {
+                val intent = Intent(context, LoginActivity::class.java)
+                context.startActivity(intent)
+            }
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // "Add Task" Button
         Button(
-            onClick = { isTaskFormVisible = !isTaskFormVisible }, // Toggle the form visibility
+            onClick = { isTaskFormVisible = !isTaskFormVisible },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(if (isTaskFormVisible) "Hide Task Form" else "Add Task")
@@ -278,6 +292,27 @@ fun SaveToFirebaseScreen() {
     }
 }
 
+@Composable
+fun SignOutButton(
+    auth: FirebaseAuth,
+    snackbarHostState: SnackbarHostState,
+    coroutineScope: CoroutineScope,
+    onSignOut: () -> Unit // Add a parameter for the navigation callback
+) {
+    Button(
+        onClick = {
+            auth.signOut() // Sign out from Firebase
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("Signed out successfully!")
+                onSignOut() // Call the navigation callback
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+    ) {
+        Text("Sign Out")
+    }
+}
 
 @Preview(showBackground = true)
 @Composable
@@ -286,4 +321,3 @@ fun SaveToFirebaseScreenPreview() {
         SaveToFirebaseScreen()
     }
 }
-
