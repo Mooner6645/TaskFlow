@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
 fun SaveToFirebaseScreen() {
     var text by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
+    var isTaskFormVisible by remember { mutableStateOf(false) } // State to track task form visibility
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
     val currentUser = auth.currentUser
@@ -47,19 +48,20 @@ fun SaveToFirebaseScreen() {
     val context = LocalContext.current
 
     // Mutable list to hold user inputs with their Firebase document IDs and descriptions
-    val tasks = remember { mutableStateListOf<Triple<String, String, String>>() } // Triple(taskText, description, documentId)
-    var selectedTaskIndex by remember { mutableStateOf<Int?>(null) } // Holds the index of the task being edited
-    var isDialogOpen by remember { mutableStateOf(false) } // To control the visibility of the edit dialog
-    var editedText by remember { mutableStateOf("") } // To hold the edited task text
-    var editedDescription by remember { mutableStateOf("") } // To hold the edited task description
+    val tasks = remember { mutableStateListOf<Triple<String, String, String>>() }
+    var selectedTaskIndex by remember { mutableStateOf<Int?>(null) }
+    var isDialogOpen by remember { mutableStateOf(false) }
+    var editedText by remember { mutableStateOf("") }
+    var editedDescription by remember { mutableStateOf("") }
 
-    // Fetch tasks associated with the user's email from Firebase when the composable is first launched
+    // Fetch tasks associated with the user's email
     LaunchedEffect(currentUser) {
         currentUser?.email?.let { email ->
             db.collection("userInputs")
                 .whereEqualTo("userEmail", email)
                 .get()
                 .addOnSuccessListener { documents ->
+                    tasks.clear() // Clear previous tasks before adding new ones
                     for (document in documents) {
                         val taskText = document.getString("taskText") ?: ""
                         val taskDescription = document.getString("description") ?: ""
@@ -79,84 +81,84 @@ fun SaveToFirebaseScreen() {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        TextField(
-            value = text,
-            onValueChange = { text = it },
-            label = { Text("Enter task") },
+        // "Add Task" Button
+        Button(
+            onClick = { isTaskFormVisible = !isTaskFormVisible }, // Toggle the form visibility
             modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        TextField(
-            value = description,
-            onValueChange = { description = it },
-            label = { Text("Enter description") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        ) {
+            Text(if (isTaskFormVisible) "Hide Task Form" else "Add Task")
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Button(
-            onClick = {
-                if (text.isNotEmpty()) {
-                    // Get the current user's email
-                    val userEmail = auth.currentUser?.email
-                    if (userEmail != null) {
-                        // Save task and description to Firebase Firestore with the user's email
-                        val userInput = hashMapOf(
-                            "taskText" to text,
-                            "description" to description,
-                            "userEmail" to userEmail // Add userEmail field
-                        )
-                        db.collection("userInputs")
-                            .add(userInput)
-                            .addOnSuccessListener { documentReference ->
+        // Show task form if "Add Task" button is clicked
+        if (isTaskFormVisible) {
+            Column {
+                TextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Enter task") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Enter description") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        if (text.isNotEmpty()) {
+                            val userEmail = auth.currentUser?.email
+                            if (userEmail != null) {
+                                val userInput = hashMapOf(
+                                    "taskText" to text,
+                                    "description" to description,
+                                    "userEmail" to userEmail
+                                )
+                                db.collection("userInputs")
+                                    .add(userInput)
+                                    .addOnSuccessListener { documentReference ->
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Saved successfully!")
+                                            tasks.add(Triple(text, description, documentReference.id))
+                                            text = "" // Clear task input
+                                            description = "" // Clear description input
+                                            isTaskFormVisible = false // Hide task form after saving
+                                        }
+                                    }
+                                    .addOnFailureListener { e ->
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Failed to save: ${e.message}")
+                                        }
+                                    }
+                            } else {
                                 coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Saved successfully!")
-                                    tasks.add(Triple(text, description, documentReference.id))
-                                    text = "" // Clear task input
-                                    description = "" // Clear description input
+                                    snackbarHostState.showSnackbar("User not authenticated.")
                                 }
                             }
-                            .addOnFailureListener { e ->
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Failed to save: ${e.message}")
-                                }
+                        } else {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("Please enter a task.")
                             }
-                    } else {
-                        coroutineScope.launch {
-                            snackbarHostState.showSnackbar("User not authenticated.")
                         }
-                    }
-                } else {
-                    coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Please enter a task.")
-                    }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Save Task")
                 }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Save to Firebase")
-        }
-        Spacer(modifier = Modifier.height(16.dp))
+            }
 
-        Button(
-            onClick = {
-                auth.signOut()
-                val intent = Intent(context, LoginActivity::class.java)
-                context.startActivity(intent)
-                // Optionally finish the MainActivity to prevent users from going back with the back button
-                (context as? ComponentActivity)?.finish()
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Sign Out")
+            Spacer(modifier = Modifier.height(16.dp))
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Display tasks in a horizontal LazyRow
+        // Task List
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
@@ -171,15 +173,14 @@ fun SaveToFirebaseScreen() {
                         .height(100.dp),
                     elevation = CardDefaults.cardElevation(4.dp),
                     onClick = {
-                        // Open dialog to show task details
                         selectedTaskIndex = taskIndex
-                        editedText = task.first // Get the task text
-                        editedDescription = task.second // Get the description
+                        editedText = task.first
+                        editedDescription = task.second
                         isDialogOpen = true
                     }
                 ) {
                     Text(
-                        text = task.first, // Display task text
+                        text = task.first,
                         modifier = Modifier.padding(16.dp)
                     )
                 }
@@ -188,6 +189,7 @@ fun SaveToFirebaseScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Snackbar Host
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -202,9 +204,8 @@ fun SaveToFirebaseScreen() {
                 Button(onClick = {
                     selectedTaskIndex?.let { index ->
                         val (oldTask, oldDescription, documentId) = tasks[index]
-                        tasks[index] = Triple(editedText, editedDescription, documentId) // Update task in the list
+                        tasks[index] = Triple(editedText, editedDescription, documentId)
 
-                        // Update task and description in Firebase Firestore using the document ID
                         db.collection("userInputs")
                             .document(documentId)
                             .update(mapOf(
@@ -245,6 +246,32 @@ fun SaveToFirebaseScreen() {
                         onValueChange = { editedDescription = it },
                         label = { Text("Edit Description") }
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            selectedTaskIndex?.let { index ->
+                                val (taskText, taskDescription, documentId) = tasks[index]
+                                db.collection("userInputs").document(documentId)
+                                    .delete()
+                                    .addOnSuccessListener {
+                                        coroutineScope.launch {
+                                            tasks.removeAt(index) // Remove task from the list
+                                            snackbarHostState.showSnackbar("Task deleted successfully!")
+                                        }
+                                    }
+                                    .addOnFailureListener { e ->
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Failed to delete task: ${e.message}")
+                                        }
+                                    }
+                            }
+                            isDialogOpen = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Delete Task")
+                    }
                 }
             }
         )
