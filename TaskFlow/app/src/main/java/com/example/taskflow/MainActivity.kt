@@ -38,14 +38,19 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SaveToFirebaseScreen() {
     var text by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // Mutable list to hold user inputs
-    val tasks = remember { mutableStateListOf<String>() }
+    // Mutable list to hold user inputs with their Firebase document IDs and descriptions
+    val tasks = remember { mutableStateListOf<Triple<String, String, String>>() } // Triple(taskText, description, documentId)
+    var selectedTaskIndex by remember { mutableStateOf<Int?>(null) } // Holds the index of the task being edited
+    var isDialogOpen by remember { mutableStateOf(false) } // To control the visibility of the edit dialog
+    var editedText by remember { mutableStateOf("") } // To hold the edited task text
+    var editedDescription by remember { mutableStateOf("") } // To hold the edited task description
 
     Column(
         modifier = Modifier
@@ -55,7 +60,16 @@ fun SaveToFirebaseScreen() {
         TextField(
             value = text,
             onValueChange = { text = it },
-            label = { Text("Enter text") },
+            label = { Text("Enter task") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        TextField(
+            value = description,
+            onValueChange = { description = it },
+            label = { Text("Enter description") },
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -64,16 +78,20 @@ fun SaveToFirebaseScreen() {
         Button(
             onClick = {
                 if (text.isNotEmpty()) {
-                    // Save text to Firebase Firestore
-                    val userInput = hashMapOf("inputText" to text)
+                    // Save task and description to Firebase Firestore
+                    val userInput = hashMapOf(
+                        "taskText" to text,
+                        "description" to description
+                    )
                     db.collection("userInputs")
                         .add(userInput)
-                        .addOnSuccessListener {
+                        .addOnSuccessListener { documentReference ->
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar("Saved successfully!")
-                                // Add task to the list
-                                tasks.add(text)
-                                text = "" // Clear the input field
+                                // Add task, description, and document ID to the list
+                                tasks.add(Triple(text, description, documentReference.id))
+                                text = "" // Clear task input
+                                description = "" // Clear description input
                             }
                         }
                         .addOnFailureListener { e ->
@@ -83,7 +101,7 @@ fun SaveToFirebaseScreen() {
                         }
                 } else {
                     coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Please enter some text.")
+                        snackbarHostState.showSnackbar("Please enter a task.")
                     }
                 }
             },
@@ -117,14 +135,22 @@ fun SaveToFirebaseScreen() {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(tasks) { task ->
+                val taskIndex = tasks.indexOf(task)
                 Card(
                     modifier = Modifier
                         .width(200.dp)
                         .height(100.dp),
-                    elevation = CardDefaults.cardElevation(4.dp)
+                    elevation = CardDefaults.cardElevation(4.dp),
+                    onClick = {
+                        // Open dialog to show task details
+                        selectedTaskIndex = taskIndex
+                        editedText = task.first // Get the task text
+                        editedDescription = task.second // Get the description
+                        isDialogOpen = true
+                    }
                 ) {
                     Text(
-                        text = task,
+                        text = task.first, // Display task text
                         modifier = Modifier.padding(16.dp)
                     )
                 }
@@ -136,6 +162,62 @@ fun SaveToFirebaseScreen() {
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
+    }
+
+    // Edit Task Dialog
+    if (isDialogOpen && selectedTaskIndex != null) {
+        AlertDialog(
+            onDismissRequest = { isDialogOpen = false },
+            confirmButton = {
+                Button(onClick = {
+                    selectedTaskIndex?.let { index ->
+                        val (oldTask, oldDescription, documentId) = tasks[index]
+                        tasks[index] = Triple(editedText, editedDescription, documentId) // Update task in the list
+
+                        // Update task and description in Firebase Firestore using the document ID
+                        db.collection("userInputs")
+                            .document(documentId)
+                            .update(mapOf(
+                                "taskText" to editedText,
+                                "description" to editedDescription
+                            ))
+                            .addOnSuccessListener {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Task updated successfully!")
+                                }
+                            }
+                            .addOnFailureListener { e ->
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Failed to update: ${e.message}")
+                                }
+                            }
+                    }
+                    isDialogOpen = false
+                }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                Button(onClick = { isDialogOpen = false }) {
+                    Text("Cancel")
+                }
+            },
+            text = {
+                Column {
+                    TextField(
+                        value = editedText,
+                        onValueChange = { editedText = it },
+                        label = { Text("Edit Task") }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextField(
+                        value = editedDescription,
+                        onValueChange = { editedDescription = it },
+                        label = { Text("Edit Description") }
+                    )
+                }
+            }
         )
     }
 }
