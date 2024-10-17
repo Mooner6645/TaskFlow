@@ -41,6 +41,7 @@ fun SaveToFirebaseScreen() {
     var description by remember { mutableStateOf("") }
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
+    val currentUser = auth.currentUser
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -51,6 +52,27 @@ fun SaveToFirebaseScreen() {
     var isDialogOpen by remember { mutableStateOf(false) } // To control the visibility of the edit dialog
     var editedText by remember { mutableStateOf("") } // To hold the edited task text
     var editedDescription by remember { mutableStateOf("") } // To hold the edited task description
+
+    // Fetch tasks associated with the user's email from Firebase when the composable is first launched
+    LaunchedEffect(currentUser) {
+        currentUser?.email?.let { email ->
+            db.collection("userInputs")
+                .whereEqualTo("userEmail", email)
+                .get()
+                .addOnSuccessListener { documents ->
+                    for (document in documents) {
+                        val taskText = document.getString("taskText") ?: ""
+                        val taskDescription = document.getString("description") ?: ""
+                        tasks.add(Triple(taskText, taskDescription, document.id))
+                    }
+                }
+                .addOnFailureListener { e ->
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar("Failed to fetch tasks: ${e.message}")
+                    }
+                }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -78,27 +100,35 @@ fun SaveToFirebaseScreen() {
         Button(
             onClick = {
                 if (text.isNotEmpty()) {
-                    // Save task and description to Firebase Firestore
-                    val userInput = hashMapOf(
-                        "taskText" to text,
-                        "description" to description
-                    )
-                    db.collection("userInputs")
-                        .add(userInput)
-                        .addOnSuccessListener { documentReference ->
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Saved successfully!")
-                                // Add task, description, and document ID to the list
-                                tasks.add(Triple(text, description, documentReference.id))
-                                text = "" // Clear task input
-                                description = "" // Clear description input
+                    // Get the current user's email
+                    val userEmail = auth.currentUser?.email
+                    if (userEmail != null) {
+                        // Save task and description to Firebase Firestore with the user's email
+                        val userInput = hashMapOf(
+                            "taskText" to text,
+                            "description" to description,
+                            "userEmail" to userEmail // Add userEmail field
+                        )
+                        db.collection("userInputs")
+                            .add(userInput)
+                            .addOnSuccessListener { documentReference ->
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Saved successfully!")
+                                    tasks.add(Triple(text, description, documentReference.id))
+                                    text = "" // Clear task input
+                                    description = "" // Clear description input
+                                }
                             }
-                        }
-                        .addOnFailureListener { e ->
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar("Failed to save: ${e.message}")
+                            .addOnFailureListener { e ->
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Failed to save: ${e.message}")
+                                }
                             }
+                    } else {
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar("User not authenticated.")
                         }
+                    }
                 } else {
                     coroutineScope.launch {
                         snackbarHostState.showSnackbar("Please enter a task.")
@@ -109,7 +139,6 @@ fun SaveToFirebaseScreen() {
         ) {
             Text("Save to Firebase")
         }
-
         Spacer(modifier = Modifier.height(16.dp))
 
         Button(
@@ -230,3 +259,4 @@ fun SaveToFirebaseScreenPreview() {
         SaveToFirebaseScreen()
     }
 }
+
