@@ -53,7 +53,7 @@ fun SaveToFirebaseScreen() {
 
     // Mutable list to hold user inputs with their Firebase document IDs, descriptions, and categories
     val tasks = remember { mutableStateListOf<Task>() }
-    var selectedTaskIndex by remember { mutableStateOf<Int?>(null) }
+    var selectedTask by remember { mutableStateOf<Task?>(null) } // Track the selected task
     var isDialogOpen by remember { mutableStateOf(false) }
 
     // Fetch tasks associated with the user's email
@@ -147,11 +147,10 @@ fun SaveToFirebaseScreen() {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(filteredTasks) { task -> // Use filtered tasks
-                val taskIndex = tasks.indexOf(task)
                 TaskCard(
                     task = task,
                     onClick = {
-                        selectedTaskIndex = taskIndex
+                        selectedTask = task // Update the selected task
                         isDialogOpen = true
                     }
                 )
@@ -163,22 +162,36 @@ fun SaveToFirebaseScreen() {
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.CenterHorizontally)
         )
+
+        // New LazyRow for ProgressCard at the bottom
+        if (selectedTask != null) {
+            Spacer(modifier = Modifier.height(16.dp)) // Space between task cards and ProgressCard
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    ProgressCard(task = selectedTask!!) // Show ProgressCard for the selected task
+                }
+            }
+        }
     }
 
     // Edit Task Dialog
-    if (isDialogOpen && selectedTaskIndex != null) {
-        val taskToEdit = tasks[selectedTaskIndex!!]
+    if (isDialogOpen && selectedTask != null) {
         TaskEditDialog(
-            task = taskToEdit,
+            task = selectedTask!!,
             onDismiss = { isDialogOpen = false },
             onUpdate = { editedText, editedDescription, updatedSubtasks ->
                 taskManager.updateTask(
-                    taskToEdit.id,
+                    selectedTask!!.id,
                     editedText,
                     editedDescription,
                     updatedSubtasks,
                     tasks,
-                    selectedTaskIndex!!,
+                    tasks.indexOf(selectedTask!!),
                     coroutineScope,
                     snackbarHostState
                 )
@@ -186,9 +199,9 @@ fun SaveToFirebaseScreen() {
             },
             onDelete = {
                 taskManager.deleteTask(
-                    taskToEdit.id,
+                    selectedTask!!.id,
                     tasks,
-                    selectedTaskIndex!!,
+                    tasks.indexOf(selectedTask!!),
                     coroutineScope,
                     snackbarHostState
                 )
@@ -197,6 +210,50 @@ fun SaveToFirebaseScreen() {
         )
     }
 }
+
+
+@Composable
+fun ProgressCard(task: Task) {
+    // Calculate progress
+    val completedSubtasks = task.subtasks.count { it.second }
+    val totalSubtasks = task.subtasks.size
+    val progress = if (totalSubtasks > 0) completedSubtasks / totalSubtasks.toFloat() else 0f
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        elevation = CardDefaults.cardElevation(4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(text = task.text, style = MaterialTheme.typography.titleLarge) // Updated text style
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (totalSubtasks > 0) {
+                Text(text = "$completedSubtasks / $totalSubtasks subtasks completed")
+            } else {
+                Text(text = "No subtasks")
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Progress Bar
+            LinearProgressIndicator(
+                progress = progress, // Use calculated progress
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp) // Thickness of the progress bar
+            )
+        }
+    }
+}
+
 
 @Composable
 fun TaskForm(
