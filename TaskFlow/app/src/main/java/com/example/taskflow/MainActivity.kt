@@ -8,19 +8,20 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.taskflow.ui.theme.TaskFlowTheme
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,13 +44,14 @@ fun SaveToFirebaseScreen() {
     var isTaskFormVisible by remember { mutableStateOf(false) }
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
+    val taskManager = remember { TaskManagement(db, auth) }
     val currentUser = auth.currentUser
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
     // Mutable list to hold user inputs with their Firebase document IDs, descriptions, and categories
-    val tasks = remember { mutableStateListOf<Triple<String, String, String>>() }
+    val tasks = remember { mutableStateListOf<Task>() }
     var selectedTaskIndex by remember { mutableStateOf<Int?>(null) }
     var isDialogOpen by remember { mutableStateOf(false) }
 
@@ -64,7 +66,14 @@ fun SaveToFirebaseScreen() {
                     for (document in documents) {
                         val taskText = document.getString("taskText") ?: ""
                         val taskDescription = document.getString("description") ?: ""
-                        tasks.add(Triple(taskText, taskDescription, document.id))
+
+                        // Retrieve subtasks correctly
+                        val subtasksData = document.get("subtasks") as? List<Map<String, Any>> ?: emptyList()
+                        val formattedSubtasks = subtasksData.map {
+                            Pair(it["name"] as? String ?: "", it["isCompleted"] as? Boolean ?: false)
+                        }
+
+                        tasks.add(Task(taskText, taskDescription, document.id, formattedSubtasks))
                     }
                 }
                 .addOnFailureListener { e ->
@@ -105,12 +114,12 @@ fun SaveToFirebaseScreen() {
         // Show Task Form if visible
         if (isTaskFormVisible) {
             TaskForm(
-                onSave = { taskText, description, category ->
-                    saveTaskToFirebase(db, auth, taskText, description, category, tasks, coroutineScope, snackbarHostState)
+                onSave = { taskText, description, subtasks ->
+                    taskManager.saveTask(taskText, description, "General", subtasks, tasks, coroutineScope, snackbarHostState)
                     isTaskFormVisible = false
                 },
                 snackbarHostState = snackbarHostState,
-                coroutineScope = coroutineScope // Pass coroutineScope here
+                coroutineScope = coroutineScope
             )
         }
 
@@ -142,16 +151,16 @@ fun SaveToFirebaseScreen() {
 
     // Edit Task Dialog
     if (isDialogOpen && selectedTaskIndex != null) {
+        val taskToEdit = tasks[selectedTaskIndex!!]
         TaskEditDialog(
-            tasks = tasks,
-            index = selectedTaskIndex!!,
+            task = taskToEdit,
             onDismiss = { isDialogOpen = false },
-            onUpdate = { editedText, editedDescription ->
-                updateTaskInFirebase(
-                    db,
-                    tasks[selectedTaskIndex!!].third,
+            onUpdate = { editedText, editedDescription, updatedSubtasks ->
+                taskManager.updateTask(
+                    taskToEdit.id,
                     editedText,
                     editedDescription,
+                    updatedSubtasks,
                     tasks,
                     selectedTaskIndex!!,
                     coroutineScope,
@@ -160,9 +169,8 @@ fun SaveToFirebaseScreen() {
                 isDialogOpen = false
             },
             onDelete = {
-                deleteTaskFromFirebase(
-                    db,
-                    tasks[selectedTaskIndex!!].third,
+                taskManager.deleteTask(
+                    taskToEdit.id,
                     tasks,
                     selectedTaskIndex!!,
                     coroutineScope,
@@ -173,19 +181,16 @@ fun SaveToFirebaseScreen() {
         )
     }
 }
-
 @Composable
 fun TaskForm(
-    onSave: (String, String, String) -> Unit,
+    onSave: (String, String, List<Pair<String, Boolean>>) -> Unit,
     snackbarHostState: SnackbarHostState,
     coroutineScope: CoroutineScope
 ) {
     var text by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf("") }
-
-    // Predefined categories
-    val categories = listOf("Work", "Personal", "Fitness", "Study", "Other")
+    var subtaskText by remember { mutableStateOf("") }
+    var subtasks = remember { mutableStateListOf<Pair<String, Boolean>>() } // Mutable list for subtasks
 
     Column {
         TextField(
@@ -206,25 +211,49 @@ fun TaskForm(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Use the updated CategoryDropdown
-        CategoryDropdown(
-            categories = categories,
-            selectedCategory = selectedCategory,
-            onCategorySelected = { selectedCategory = it } // Update selected category
+        TextField(
+            value = subtaskText,
+            onValueChange = { subtaskText = it },
+            label = { Text("Enter subtask") },
+            modifier = Modifier.fillMaxWidth()
         )
+
+        Button(
+            onClick = {
+                if (subtaskText.isNotEmpty()) {
+                    subtasks.add(Pair(subtaskText, false)) // Add the subtask with completed status
+                    subtaskText = "" // Clear subtask input
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Add Subtask")
+        }
+
+        // Display subtasks with checkboxes
+        subtasks.forEachIndexed { index, (subtask, isCompleted) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = isCompleted,
+                    onCheckedChange = {
+                        subtasks[index] = Pair(subtask, it) // Update completion status
+                    }
+                )
+                Text(text = subtask)
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
         Button(
             onClick = {
-                if (text.isNotEmpty() && selectedCategory.isNotEmpty()) {
-                    onSave(text, description, selectedCategory)
+                if (text.isNotEmpty()) {
+                    onSave(text, description, subtasks.toList()) // Call save function with subtasks
                     text = "" // Clear task input
                     description = "" // Clear description input
-                    selectedCategory = "" // Clear category selection
                 } else {
                     coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Please enter a task and select a category.")
+                        snackbarHostState.showSnackbar("Please enter a task.")
                     }
                 }
             },
@@ -235,197 +264,129 @@ fun TaskForm(
     }
 }
 
-
-@Composable
-fun CategoryDropdown(
-    categories: List<String>,
-    selectedCategory: String,
-    onCategorySelected: (String) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Box(modifier = Modifier.fillMaxWidth()) {
-        TextField(
-            value = selectedCategory,
-            onValueChange = {}, // No-op to prevent typing
-            label = { Text("Select Category") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = true }, // Open dropdown on click
-            readOnly = true // Make it read-only to indicate it's a dropdown
-        )
-
-        // Dropdown menu
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false } // Close dropdown when clicked outside
-        ) {
-            categories.forEach { category ->
-                DropdownMenuItem(
-                    text = { Text(category) },
-                    onClick = {
-                        onCategorySelected(category) // Set the selected category
-                        expanded = false // Close the dropdown after selection
-                    }
-                )
-            }
-        }
-    }
-}
-
-
 @Composable
 fun TaskCard(
-    task: Triple<String, String, String>,
+    task: Task,
     onClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .width(200.dp)
             .height(100.dp)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick), // Handle click to show dialog
         elevation = CardDefaults.cardElevation(4.dp)
     ) {
-        Text(
-            text = task.first,
-            modifier = Modifier.padding(16.dp)
-        )
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(text = task.text) // Only show task name
+        }
     }
 }
 
 @Composable
 fun TaskEditDialog(
-    tasks: List<Triple<String, String, String>>,
-    index: Int,
+    task: Task,
     onDismiss: () -> Unit,
-    onUpdate: (String, String) -> Unit,
+    onUpdate: (String, String, List<Pair<String, Boolean>>) -> Unit,
     onDelete: () -> Unit
 ) {
-    var editedText by remember { mutableStateOf(tasks[index].first) }
-    var editedDescription by remember { mutableStateOf(tasks[index].second) }
+    var updatedText by remember { mutableStateOf(task.text) }
+    var updatedDescription by remember { mutableStateOf(task.description) }
+    var subtasks = remember { mutableStateListOf<Pair<String, Boolean>>().apply { addAll(task.subtasks) } }
+    var newSubtaskText by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = {
-            Button(onClick = { onUpdate(editedText, editedDescription) }) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            Button(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        },
+        title = { Text("Edit Task") },
         text = {
             Column {
                 TextField(
-                    value = editedText,
-                    onValueChange = { editedText = it },
-                    label = { Text("Edit Task") }
+                    value = updatedText,
+                    onValueChange = { updatedText = it },
+                    label = { Text("Task") }
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 TextField(
-                    value = editedDescription,
-                    onValueChange = { editedDescription = it },
-                    label = { Text("Edit Description") }
+                    value = updatedDescription,
+                    onValueChange = { updatedDescription = it },
+                    label = { Text("Description") }
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = onDelete) {
-                    Text("Delete Task")
+
+                // Display existing subtasks with checkboxes
+                subtasks.forEachIndexed { index, (subtask, isCompleted) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = isCompleted,
+                            onCheckedChange = {
+                                subtasks[index] = Pair(subtask, it) // Update completion status
+                            }
+                        )
+                        Text(text = subtask)
+                        IconButton(onClick = { subtasks.removeAt(index) }) {
+                            Icon(imageVector = Icons.Default.Delete, contentDescription = "Remove subtask")
+                        }
+                    }
+                }
+
+                // New subtask input
+                TextField(
+                    value = newSubtaskText,
+                    onValueChange = { newSubtaskText = it },
+                    label = { Text("New Subtask") }
+                )
+                Button(
+                    onClick = {
+                        if (newSubtaskText.isNotBlank()) {
+                            subtasks.add(Pair(newSubtaskText, false)) // Add new subtask
+                            newSubtaskText = "" // Clear input
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Add Subtask")
                 }
             }
-        }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onUpdate(updatedText, updatedDescription, subtasks.toList()) // Pass updated data
+                    onDismiss() // Dismiss after update
+                },
+                modifier = Modifier.fillMaxWidth() // Make it full width like the "Add Subtask" button
+            ) {
+                Text("Update") // Make the text same as "Add Subtask"
+            }
+        },
+        dismissButton = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween // Space between the buttons
+            ) {
+                // Delete Task Button in bottom left
+                Button(
+                    onClick = {
+                        onDelete() // Call delete task function
+                        onDismiss() // Dismiss dialog after delete
+                    },
+                    colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete Task", color = MaterialTheme.colorScheme.onError)
+                }
+
+                // Cancel button on the right side
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+        },
+        modifier = Modifier.fillMaxWidth()
     )
 }
 
-// Firebase interaction functions
-private fun saveTaskToFirebase(
-    db: FirebaseFirestore,
-    auth: FirebaseAuth,
-    taskText: String,
-    description: String,
-    category: String,
-    tasks: SnapshotStateList<Triple<String, String, String>>,
-    coroutineScope: CoroutineScope,
-    snackbarHostState: SnackbarHostState
-) {
-    val userEmail = auth.currentUser?.email ?: return
-    val newTask = hashMapOf(
-        "taskText" to taskText,
-        "description" to description,
-        "category" to category,
-        "userEmail" to userEmail
-    )
-
-    db.collection("userInputs")
-        .add(newTask)
-        .addOnSuccessListener { documentReference ->
-            tasks.add(Triple(taskText, description, documentReference.id))
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar("Task added successfully.")
-            }
-        }
-        .addOnFailureListener { e ->
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar("Error adding task: ${e.message}")
-            }
-        }
-}
-
-private fun updateTaskInFirebase(
-    db: FirebaseFirestore,
-    documentId: String,
-    updatedText: String,
-    updatedDescription: String,
-    tasks: SnapshotStateList<Triple<String, String, String>>,
-    index: Int,
-    coroutineScope: CoroutineScope,
-    snackbarHostState: SnackbarHostState
-) {
-    // Create a mutable map with type MutableMap<String, Any>
-    val updatedTask: MutableMap<String, Any> = hashMapOf(
-        "taskText" to updatedText,
-        "description" to updatedDescription
-    )
-
-    db.collection("userInputs").document(documentId)
-        .update(updatedTask)
-        .addOnSuccessListener {
-            tasks[index] = Triple(updatedText, updatedDescription, documentId) // Update the task in the list
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar("Task updated successfully.")
-            }
-        }
-        .addOnFailureListener { e ->
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar("Error updating task: ${e.message}")
-            }
-        }
-}
-
-
-private fun deleteTaskFromFirebase(
-    db: FirebaseFirestore,
-    documentId: String,
-    tasks: SnapshotStateList<Triple<String, String, String>>,
-    index: Int,
-    coroutineScope: CoroutineScope,
-    snackbarHostState: SnackbarHostState
-) {
-    db.collection("userInputs").document(documentId)
-        .delete()
-        .addOnSuccessListener {
-            tasks.removeAt(index) // Remove the task from the list
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar("Task deleted successfully.")
-            }
-        }
-        .addOnFailureListener { e ->
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar("Error deleting task: ${e.message}")
-            }
-        }
-}
 
 @Composable
 fun SignOutButton(
@@ -434,26 +395,15 @@ fun SignOutButton(
     coroutineScope: CoroutineScope,
     onSignOut: () -> Unit
 ) {
-    Button(
-        onClick = {
-            auth.signOut()
-            onSignOut()
-        },
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Text("Sign Out")
+    Box(modifier = Modifier.fillMaxWidth()) { // Box allows for absolute positioning
+        Button(
+            onClick = {
+                auth.signOut()
+                onSignOut()
+            },
+            modifier = Modifier.align(Alignment.TopEnd) // Aligns button to the top end
+        ) {
+            Text("Sign Out")
+        }
     }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun PreviewTaskForm() {
-    val snackbarHostState = SnackbarHostState()
-    val coroutineScope = rememberCoroutineScope()
-
-    TaskForm(
-        onSave = { _, _, _ -> },
-        snackbarHostState = snackbarHostState,
-        coroutineScope = coroutineScope
-    )
 }
