@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -42,7 +43,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SaveToFirebaseScreen() {
     var isTaskFormVisible by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") } // Search query state
+    var searchQuery by remember { mutableStateOf("") }
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
     val taskManager = remember { TaskManagement(db, auth) }
@@ -51,9 +52,8 @@ fun SaveToFirebaseScreen() {
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // Mutable list to hold user inputs with their Firebase document IDs, descriptions, and categories
     val tasks = remember { mutableStateListOf<Task>() }
-    var selectedTask by remember { mutableStateOf<Task?>(null) } // Track the selected task
+    var selectedTask by remember { mutableStateOf<Task?>(null) }
     var isDialogOpen by remember { mutableStateOf(false) }
 
     // Fetch tasks associated with the user's email
@@ -63,12 +63,11 @@ fun SaveToFirebaseScreen() {
                 .whereEqualTo("userEmail", email)
                 .get()
                 .addOnSuccessListener { documents ->
-                    tasks.clear() // Clear previous tasks before adding new ones
+                    tasks.clear()
                     for (document in documents) {
                         val taskText = document.getString("taskText") ?: ""
                         val taskDescription = document.getString("description") ?: ""
 
-                        // Retrieve subtasks correctly
                         val subtasksData = document.get("subtasks") as? List<Map<String, Any>> ?: emptyList()
                         val formattedSubtasks = subtasksData.map {
                             Pair(it["name"] as? String ?: "", it["isCompleted"] as? Boolean ?: false)
@@ -85,101 +84,98 @@ fun SaveToFirebaseScreen() {
         }
     }
 
-    // Filter tasks based on the search query
     val filteredTasks = tasks.filter { task ->
-        task.text.contains(searchQuery, ignoreCase = true) // Filter by task name
+        task.text.contains(searchQuery, ignoreCase = true)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
+    Box(
+        modifier = Modifier.fillMaxSize()
     ) {
-        SignOutButton(
-            auth = auth,
-            snackbarHostState = snackbarHostState,
-            coroutineScope = coroutineScope,
-            onSignOut = {
-                val intent = Intent(context, LoginActivity::class.java)
-                context.startActivity(intent)
-            }
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Search Bar for filtering tasks
-        TextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it }, // Update search query
-            label = { Text("Search Tasks") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Toggle Task Form visibility
-        Button(
-            onClick = { isTaskFormVisible = !isTaskFormVisible },
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
         ) {
-            Text(if (isTaskFormVisible) "Hide Task Form" else "Add Task")
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Show Task Form if visible
-        if (isTaskFormVisible) {
-            TaskForm(
-                onSave = { taskText, description, subtasks ->
-                    taskManager.saveTask(taskText, description, "General", subtasks, tasks, coroutineScope, snackbarHostState)
-                    isTaskFormVisible = false
-                },
+            SignOutButton(
+                auth = auth,
                 snackbarHostState = snackbarHostState,
-                coroutineScope = coroutineScope
+                coroutineScope = coroutineScope,
+                onSignOut = {
+                    val intent = Intent(context, LoginActivity::class.java)
+                    context.startActivity(intent)
+                }
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            TextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                label = { Text("Search Tasks") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = { isTaskFormVisible = !isTaskFormVisible },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (isTaskFormVisible) "Hide Task Form" else "Add Task")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (isTaskFormVisible) {
+                TaskForm(
+                    onSave = { taskText, description, subtasks ->
+                        taskManager.saveTask(taskText, description, "General", subtasks, tasks, coroutineScope, snackbarHostState)
+                        isTaskFormVisible = false
+                    },
+                    snackbarHostState = snackbarHostState,
+                    coroutineScope = coroutineScope
+                )
+            }
+
+            // Display Task Cards horizontally under the search bar
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp), // Added padding for better spacing
+                horizontalArrangement = Arrangement.spacedBy(8.dp) // Space between cards
+            ) {
+                items(filteredTasks) { task ->
+                    TaskCard(
+                        task = task,
+                        onClick = {
+                            selectedTask = task
+                            isDialogOpen = true
+                        }
+                    )
+                }
+            }
         }
 
-        // Task List filtered by search query
+        // Progress Cards at the bottom of the screen
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp),
+                .padding(vertical = 8.dp)
+                .align(Alignment.BottomCenter), // Aligns at the bottom center of the screen
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(filteredTasks) { task -> // Use filtered tasks
-                TaskCard(
-                    task = task,
-                    onClick = {
-                        selectedTask = task // Update the selected task
-                        isDialogOpen = true
-                    }
-                )
+            items(tasks) { task ->
+                ProgressCard(task = task)
             }
         }
 
         // Snackbar Host
         SnackbarHost(
             hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.CenterHorizontally)
+            modifier = Modifier.align(Alignment.BottomCenter) // Aligns Snackbar at the bottom center of the screen
         )
-
-        // New LazyRow for ProgressCard at the bottom
-        if (selectedTask != null) {
-            Spacer(modifier = Modifier.height(16.dp)) // Space between task cards and ProgressCard
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                item {
-                    ProgressCard(task = selectedTask!!) // Show ProgressCard for the selected task
-                }
-            }
-        }
     }
 
-    // Edit Task Dialog
     if (isDialogOpen && selectedTask != null) {
         TaskEditDialog(
             task = selectedTask!!,
