@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SaveToFirebaseScreen() {
     var isTaskFormVisible by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") } // Search query state
     val db = FirebaseFirestore.getInstance()
     val auth = FirebaseAuth.getInstance()
     val taskManager = remember { TaskManagement(db, auth) }
@@ -84,6 +85,11 @@ fun SaveToFirebaseScreen() {
         }
     }
 
+    // Filter tasks based on the search query
+    val filteredTasks = tasks.filter { task ->
+        task.text.contains(searchQuery, ignoreCase = true) // Filter by task name
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -97,6 +103,16 @@ fun SaveToFirebaseScreen() {
                 val intent = Intent(context, LoginActivity::class.java)
                 context.startActivity(intent)
             }
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Search Bar for filtering tasks
+        TextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it }, // Update search query
+            label = { Text("Search Tasks") },
+            modifier = Modifier.fillMaxWidth()
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -123,14 +139,14 @@ fun SaveToFirebaseScreen() {
             )
         }
 
-        // Task List
+        // Task List filtered by search query
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(tasks) { task ->
+            items(filteredTasks) { task -> // Use filtered tasks
                 val taskIndex = tasks.indexOf(task)
                 TaskCard(
                     task = task,
@@ -181,6 +197,7 @@ fun SaveToFirebaseScreen() {
         )
     }
 }
+
 @Composable
 fun TaskForm(
     onSave: (String, String, List<Pair<String, Boolean>>) -> Unit,
